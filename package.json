@@ -1,13 +1,12 @@
 {
-  "name": "better-sqlite3",
-  "version": "5.4.3",
-  "description": "The fastest and simplest library for SQLite3 in Node.js.",
+  "name": "sqlite3-extension-builder",
+  "version": "1.0.0",
+  "description": "Builds ",
   "homepage": "http://github.com/mrawdon/sqlite3-test-extension",
-  "author": "Joshua Wise <joshuathomaswise@gmail.com>",
-  "main": "lib/index.js",
+  "author": "Mike Rawdon <mrawdon@gmail.com>",
   "repository": {
     "type": "git",
-    "url": "git://github.com/JoshuaWise/better-sqlite3.git"
+    "url": "https://github.com/mrawdon/sqlite3-extension-builder.git"
   },
   "dependencies": {
     "integer": "^2.1.0",
@@ -26,7 +25,7 @@
     "sqlite",
     "sqlite3",
     "transactions",
-    "user-defined functions",
+    "sqlite extensions",
     "aggregate functions",
     "window functions",
     "database"
