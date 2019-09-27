@@ -1,4 +1,4 @@
-#Builds any sqlite extensions in the src directory
+# Builds any sqlite extensions in the src directory
 
 ## Build existing sqlite extensions
 1. Run npm install
