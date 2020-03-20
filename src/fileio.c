@@ -117,6 +117,13 @@ SQLITE_EXTENSION_INIT1
 #define FSDIR_COLUMN_PATH     4     /* Path to top of search */
 #define FSDIR_COLUMN_DIR      5     /* Path is relative to this directory */
 
+int isJSON(const char *str)
+{
+    char *dot = strrchr(str, '.');
+
+    if (NULL == dot) return 0;
+    return strcmp(dot, ".json") == 0;
+}
 
 /*
 ** Set the result stored by context ctx to a blob containing the 
@@ -149,6 +156,12 @@ static void readFileContents(sqlite3_context *ctx, const char *zName){
   if( nIn>mxBlob ){
     sqlite3_result_error_code(ctx, SQLITE_TOOBIG);
     fclose(in);
+    return;
+  }
+  if(nIn == 0){
+    fclose(in);
+    
+    sqlite3_result_text(ctx, "[]", -1, SQLITE_TRANSIENT);
     return;
   }
   pBuf = sqlite3_malloc64( nIn ? nIn : 1 );
