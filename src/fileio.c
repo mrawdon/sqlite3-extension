@@ -117,14 +117,6 @@ SQLITE_EXTENSION_INIT1
 #define FSDIR_COLUMN_PATH     4     /* Path to top of search */
 #define FSDIR_COLUMN_DIR      5     /* Path is relative to this directory */
 
-int isJSON(const char *str)
-{
-    char *dot = strrchr(str, '.');
-
-    if (NULL == dot) return 0;
-    return strcmp(dot, ".json") == 0;
-}
-
 /*
 ** Set the result stored by context ctx to a blob containing the 
 ** contents of file zName.  Or, leave the result unchanged (NULL)
@@ -136,7 +128,7 @@ int isJSON(const char *str)
 ** Throw an SQLITE_IOERR if there are difficulties pulling the file
 ** off of disk.
 */
-static void readFileContents(sqlite3_context *ctx, const char *zName){
+static void readFileContents(sqlite3_context *ctx, const char *zName, const char *defaultValue){
   FILE *in;
   sqlite3_int64 nIn;
   void *pBuf;
@@ -146,6 +138,10 @@ static void readFileContents(sqlite3_context *ctx, const char *zName){
   in = fopen(zName, "rb");
   if( in==0 ){
     /* File does not exist or is unreadable. Leave the result set to NULL. */
+    if(defaultValue != 0){
+      sqlite3_result_text(ctx, defaultValue, -1, SQLITE_TRANSIENT);
+    }
+    
     return;
   }
   fseek(in, 0, SEEK_END);
@@ -158,10 +154,10 @@ static void readFileContents(sqlite3_context *ctx, const char *zName){
     fclose(in);
     return;
   }
-  if(nIn == 0){
+  if(nIn == 0 && defaultValue != 0){
     fclose(in);
     
-    sqlite3_result_text(ctx, "[]", -1, SQLITE_TRANSIENT);
+    sqlite3_result_text(ctx, defaultValue, -1, SQLITE_TRANSIENT);
     return;
   }
   pBuf = sqlite3_malloc64( nIn ? nIn : 1 );
@@ -193,11 +189,20 @@ static void readfileFunc(
   int argc,
   sqlite3_value **argv
 ){
+  if(argc == 0 || argc >2){
+    sqlite3_result_error(context, "Only 1 or 2 arguments are allowed", -1);
+    return;
+  }
+  
   const char *zName;
-  (void)(argc);  /* Unused parameter */
   zName = (const char*)sqlite3_value_text(argv[0]);
   if( zName==0 ) return;
-  readFileContents(context, zName);
+  const char *defaultValue=0;
+  if(argc == 2) {
+    defaultValue = (const char*)sqlite3_value_text(argv[1]);
+  }
+
+  readFileContents(context, zName, defaultValue);
 }
 
 static void cdFunc(
@@ -237,7 +242,7 @@ int sqlite3_fileio_init(
   int rc = SQLITE_OK;
   SQLITE_EXTENSION_INIT2(pApi);
   (void)pzErrMsg;  /* Unused parameter */
-  rc = sqlite3_create_function(db, "readfile", 1, SQLITE_UTF8, 0,
+  rc = sqlite3_create_function(db, "readfile", -1, SQLITE_UTF8, 0,
                                readfileFunc, 0, 0);
   rc = sqlite3_create_function(db, "cd", 1, SQLITE_UTF8, 0,
                                cdFunc, 0, 0);
