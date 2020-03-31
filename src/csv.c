@@ -47,6 +47,14 @@ SQLITE_EXTENSION_INIT1
 #include <stdarg.h>
 #include <ctype.h>
 #include <stdio.h>
+#include <string.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#define strcasecmp  _stricmp
+#define strncasecmp _strnicmp
+#endif
+
 
 #ifndef SQLITE_OMIT_VIRTUALTABLE
 
@@ -195,6 +203,58 @@ static int csv_append(CsvReader *p, char c){
   return 0;
 }
 
+/**
+ * Map string to SQLite data type.
+ * @param type string to be mapped
+ * @result SQLITE_TEXT et.al.
+ */
+
+static int maptype(char *type)
+{
+    int typelen = type ? strlen(type) : 0;
+    if(typelen > 0 && (type[0]=='"' || type[0]=='\'')){
+      return maptype(type+1);
+    }
+    if ((typelen >= 3) &&
+	(strncasecmp(type, "integer", 7) == 0)) {
+	return SQLITE_INTEGER;
+    }
+    if ((typelen >= 6) &&
+	(strncasecmp(type, "double", 6) == 0)) {
+	return SQLITE_FLOAT;
+    }
+    if ((typelen >= 5) &&
+	(strncasecmp(type, "float", 5) == 0)) {
+	return SQLITE_FLOAT;
+    }
+    if ((typelen >= 4) &&
+	(strncasecmp(type, "real", 4) == 0)) {
+	return SQLITE_FLOAT;
+    }
+    return SQLITE_TEXT;
+}
+
+static char*
+unmaptype(int type)
+{
+  switch(type){
+    case SQLITE_INTEGER:
+      return "INTEGER";
+    case SQLITE_FLOAT:
+      return "FLOAT";
+    default:
+      return "TEXT";
+  }
+}
+
+static void appendType(int* types, sqlite3_str *pStr, int iCol,int numTypes){
+  if(types != 0 && iCol < numTypes){
+     sqlite3_str_appendf(pStr, " %w", unmaptype(types[iCol]));
+  }else{
+     sqlite3_str_appendf(pStr, " TEXT");
+  }
+}
+
 /* Read a single field of CSV text.  Compatible with rfc4180 and extended
 ** with the option of having a separator other than ",".
 **
@@ -311,6 +371,8 @@ typedef struct CsvTable {
   long iStart;                    /* Offset to start of data in zFilename */
   int nCol;                       /* Number of columns in the CSV file */
   unsigned int tstFlags;          /* Bit values used for testing */
+  int nTypes;
+  int* types;
 } CsvTable;
 
 /* Allowed values for tstFlags */
@@ -508,7 +570,8 @@ static int csvtabConnect(
 # define CSV_FILENAME (azPValue[0])
 # define CSV_DATA     (azPValue[1])
 # define CSV_SCHEMA   (azPValue[2])
-
+ int* types = 0;
+int numTypes=0;
 
   assert( sizeof(azPValue)==sizeof(azParam) );
   memset(&sRdr, 0, sizeof(sRdr));
@@ -544,6 +607,28 @@ static int csvtabConnect(
         csv_errmsg(&sRdr, "column= value must be positive");
         goto csvtab_connect_error;
       }
+    }else if( (zValue = csv_parameter("types",5,z))!=0 ){
+        int strIndex =0;
+        numTypes=1;
+
+        while(strIndex < strlen(zValue)) {
+            if(zValue[strIndex] == ',')numTypes++;
+            strIndex++;
+        }
+        
+        types=sqlite3_malloc(sizeof(int)*numTypes);
+        if(types == 0)goto csvtab_connect_oom;
+        
+        strIndex = 0;
+        char *token = strtok(zValue, ","); 
+        while (token != NULL) 
+        { 
+            int mappedType=maptype(token);
+            
+            types[strIndex]=mappedType;
+            strIndex++;
+            token=strtok(NULL, ",");          
+        } 
     }else
     {
       csv_errmsg(&sRdr, "bad parameter: '%s'", z);
@@ -578,14 +663,17 @@ static int csvtabConnect(
     }
     if( nCol>0 && bHeader<1 ){
       for(iCol=0; iCol<nCol; iCol++){
-        sqlite3_str_appendf(pStr, "%sc%d TEXT", zSep, iCol);
+        sqlite3_str_appendf(pStr, "%sc%d", zSep, iCol);
+        appendType(types,pStr,iCol,numTypes);
+        
         zSep = ",";
       }
     }else{
       do{
         char *z = csv_read_one_field(&sRdr);
         if( (nCol>0 && iCol<nCol) || (nCol<0 && bHeader) ){
-          sqlite3_str_appendf(pStr,"%s\"%w\" TEXT", zSep, z);
+          sqlite3_str_appendf(pStr,"%s\"%w\"", zSep, z);
+          appendType(types,pStr,iCol,numTypes);
           zSep = ",";
           iCol++;
         }
@@ -594,12 +682,14 @@ static int csvtabConnect(
         nCol = iCol;
       }else{
         while( iCol<nCol ){
-          sqlite3_str_appendf(pStr,"%sc%d TEXT", zSep, ++iCol);
+          sqlite3_str_appendf(pStr,"%sc%d", zSep, ++iCol);
+          appendType(types,pStr,iCol,numTypes);
           zSep = ",";
         }
       }
     }
     pNew->nCol = nCol;
+    
     sqlite3_str_appendf(pStr, ")");
     CSV_SCHEMA = sqlite3_str_finish(pStr);
     if( CSV_SCHEMA==0 ) goto csvtab_connect_oom;
@@ -613,6 +703,13 @@ static int csvtabConnect(
   }
   pNew->zFilename = CSV_FILENAME;  CSV_FILENAME = 0;
   pNew->zData = CSV_DATA;          CSV_DATA = 0;
+  if(types != 0) {
+    pNew->nTypes=numTypes;
+    pNew->types=types;
+  }else{
+    pNew->nTypes=-1;
+  }
+  
 #ifdef SQLITE_TEST
   pNew->tstFlags = tstFlags;
 #endif
@@ -754,6 +851,7 @@ static int csvtabNext(sqlite3_vtab_cursor *cur){
   }
   return SQLITE_OK;
 }
+const char* NULL_STR= "\\N";
 
 /*
 ** Return values of columns for the row at which the CsvCursor
@@ -767,7 +865,58 @@ static int csvtabColumn(
   CsvCursor *pCur = (CsvCursor*)cur;
   CsvTable *pTab = (CsvTable*)cur->pVtab;
   if( i>=0 && i<pTab->nCol && pCur->azVal[i]!=0 ){
-    sqlite3_result_text(ctx, pCur->azVal[i], -1, SQLITE_STATIC);
+    if(strcmp(NULL_STR,pCur->azVal[i]) == 0){
+      sqlite3_result_null(ctx);
+    }else{
+      if(pTab->nTypes >= 0 ){
+        char *endp;
+        switch(pTab->types[i]){
+          case SQLITE_INTEGER:
+            sqlite_int64 iVal;
+#if defined(_WIN32) || defined(_WIN64)
+            char endc;
+            if (sscanf(pCur->azVal[i], "%I64d%c", &iVal, &endc) == 1) {
+                sqlite3_result_int64(ctx, iVal);
+                break;
+            }
+#else
+	          endp = 0;
+#ifdef __osf__
+	          iVal = strtol(pCur->azVal[i], &endp, 0);
+#else
+	          iVal = strtoll(pCur->azVal[i], &endp, 0);
+#endif
+	          if (endp && (endp != pCur->azVal[i]) && !*endp) {
+                sqlite3_result_int64(ctx, iVal);
+                break;
+            }
+	}
+#endif
+            //unable to parse
+            sqlite3_result_null(ctx);
+            break;
+          case SQLITE_FLOAT:
+            double dVal;
+
+            endp = 0;
+            dVal = strtod(pCur->azVal[i], &endp);
+            if (endp && (endp != pCur->azVal[i]) && !*endp) {
+                sqlite3_result_double(ctx, dVal);
+                break;
+            }
+            //unable to parse
+            sqlite3_result_null(ctx);
+              break;
+          default:
+            sqlite3_result_text(ctx, pCur->azVal[i], -1, SQLITE_STATIC);
+
+        }
+      }else{
+        sqlite3_result_text(ctx, pCur->azVal[i], -1, SQLITE_STATIC);
+      }
+      
+    }
+    
   }
   return SQLITE_OK;
 }
