@@ -400,6 +400,7 @@ static int csvtabDisconnect(sqlite3_vtab *pVtab){
   CsvTable *p = (CsvTable*)pVtab;
   sqlite3_free(p->zFilename);
   sqlite3_free(p->zData);
+  sqlite3_free(p->types);
   sqlite3_free(p);
   return SQLITE_OK;
 }
@@ -736,6 +737,12 @@ csvtab_connect_oom:
   csv_errmsg(&sRdr, "out of memory");
 
 csvtab_connect_error:
+  if(types != 0){
+    sqlite3_free(azPValue[i]);
+    if( pNew ){
+      pNew->types=NULL;
+    }
+  }
   if( pNew ) csvtabDisconnect(&pNew->base);
   for(i=0; i<sizeof(azPValue)/sizeof(azPValue[0]); i++){
     sqlite3_free(azPValue[i]);
