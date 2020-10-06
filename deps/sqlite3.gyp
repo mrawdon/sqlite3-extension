@@ -9,40 +9,12 @@
   'includes': ['common.gypi'],
   'targets': [
     {
-      'target_name': 'locate_sqlite3',
-      'type': 'none',
-      'hard_dependency': 1,
-      'conditions': [['sqlite3 == ""', {
-        'actions': [{
-          'action_name': 'extract_sqlite3',
-          'inputs': ['sqlite3.tar.gz'],
-          'outputs': [
-            '<(SHARED_INTERMEDIATE_DIR)/sqlite3/sqlite3.c',
-            '<(SHARED_INTERMEDIATE_DIR)/sqlite3/sqlite3.h',
-            '<(SHARED_INTERMEDIATE_DIR)/sqlite3/sqlite3ext.h',
-          ],
-          'action': ['node', 'extract.js', '<(SHARED_INTERMEDIATE_DIR)/sqlite3'],
-        }],
-      }, {
-        'actions': [{
-          'action_name': 'symlink_sqlite3',
-          'inputs': [],
-          'outputs': [
-            '<(SHARED_INTERMEDIATE_DIR)/sqlite3/sqlite3.c',
-            '<(SHARED_INTERMEDIATE_DIR)/sqlite3/sqlite3.h',
-          ],
-          'action': ['node', 'symlink.js', '<(SHARED_INTERMEDIATE_DIR)/sqlite3', '<(sqlite3)'],
-        }],
-      }]],
-    },
-    {
       'target_name': 'sqlite3',
       'type': 'static_library',
-      'dependencies': ['locate_sqlite3'],
-      'sources': ['<(SHARED_INTERMEDIATE_DIR)/sqlite3/sqlite3.c'],
-      'include_dirs': ['<(SHARED_INTERMEDIATE_DIR)/sqlite3/'],
+      'sources': ['sqlite3/sqlite3.c'],
+      'include_dirs': ['sqlite3/'],
       'direct_dependent_settings': {
-        'include_dirs': ['<(SHARED_INTERMEDIATE_DIR)/sqlite3/'],
+        'include_dirs': ['sqlite3/'],
       },
       'cflags': [
         '-std=c99',

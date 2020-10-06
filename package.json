@@ -1,6 +1,6 @@
 {
   "name": "sqlite3-extension-builder",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Builds ",
   "homepage": "http://github.com/mrawdon/sqlite3-test-extension",
   "author": "Mike Rawdon <mrawdon@gmail.com>",
