@@ -17,7 +17,7 @@ bindingOut.write(`
     {
       'target_name': 'place_resulting_binaries',
       'type': 'none',
-      'dependencies': ['test_extension','csv'],
+      'dependencies': ['test_extension','csv','regexp'],
       'copies': [{
         'files': [${sourceFiles.map(f=>`'<(PRODUCT_DIR)/${f.substring(0,f.indexOf('.'))}.node'`).join()}],
         'destination': 'build',
