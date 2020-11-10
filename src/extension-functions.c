@@ -980,6 +980,90 @@ static void strfilterFunc(sqlite3_context *context, int argc, sqlite3_value **ar
     sqlite3_free(zo);
   }
 }
+//select substring_index("test","e",1)
+// from https://github.com/mysql/mysql-server/blob/ee4455a33b10f1b1886044322e4893f587b319ed/sql/item_strfunc.cc
+static void substr_indexFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
+  const char *res;        /* first parameter string (searched string) */
+  int res_length;
+  const char *delimiter;        /* second parameter string (vcontains valid characters) */
+  char *tmp;               /* output string */
+  int delimiter_length;
+  int count_val=0;
+  
+
+  assert( argc==3 );
+  
+  if( sqlite3_value_type(argv[0]) == SQLITE_NULL || sqlite3_value_type(argv[1]) == SQLITE_NULL ){
+    sqlite3_result_null(context); 
+    return;
+  }
+  res = (char *)sqlite3_value_text(argv[0]);
+	res_length = sqlite3_value_bytes(argv[0]);
+  delimiter = (char *)sqlite3_value_text(argv[1]);
+  delimiter_length = sqlite3_value_bytes(argv[1]);
+	count_val  = sqlite3_value_int(argv[2]);
+    
+  int offset=0;
+  const int end = res_length - delimiter_length + 1;
+  
+  long nnn = 0;
+  long ccc = count_val;
+   for (int pass = (count_val < 0 ? 0 : 1); pass < 2; ++pass) {
+      while (offset < end) {
+        if (*(res+offset) == *delimiter) {
+          int i = 0;
+          while (i != delimiter_length) {
+            i++;
+            if (*(i+delimiter) != *(i+delimiter)) goto skip;
+          }
+          if (pass == 0)
+            ++nnn;
+          else if (--ccc == 0)
+            break;
+          offset += delimiter_length;
+          continue;
+        }
+      skip:
+        offset ++; //max(1U, my_ismbchar(res->charset(), ptr, strend));
+      } /* either not found or got total number when count<0 */
+
+      if (pass == 0) /* count < 0 */
+      {
+        ccc += nnn + 1;
+        if (ccc <= 0){
+          tmp=res;/* not found, return original string */
+          break;
+        }
+        offset=0;
+      } else {
+        if (ccc != 0){
+          tmp=res;/* not found, return original string */
+          break;
+        } 
+        if (count_val < 0) /* return right part */
+        {
+          tmp = sqlite3_malloc(res_length-offset-delimiter_length+1); 
+          if (!tmp){
+            sqlite3_result_error_nomem(context);
+            return;
+          }
+          strncpy((char *)tmp,(char *)(res+offset+delimiter_length),res_length-offset-delimiter_length);
+          tmp[res_length-offset-delimiter_length]='\0';
+        } else /* return left part */
+        {
+          tmp = sqlite3_malloc(offset+1); 
+          if (!tmp){
+            sqlite3_result_error_nomem(context);
+            return;
+          }
+          strncpy((char *)tmp,(char *)(res),offset);
+          tmp[offset]='\0';
+          //tmp_value.set(*res, 0, (ptr - res->ptr()));
+        }
+      }
+    }    
+    sqlite3_result_text(context, (char*)tmp, -1, SQLITE_TRANSIENT); 
+  }
 
 /*
 ** Given a string z1, retutns the (0 based) index of it's first occurence
@@ -1777,7 +1861,7 @@ int RegisterExtensionFunctions(sqlite3 *db){
     { "padr",               2, 0, SQLITE_UTF8,    0, padrFunc },
     { "padc",               2, 0, SQLITE_UTF8,    0, padcFunc },
     { "strfilter",          2, 0, SQLITE_UTF8,    0, strfilterFunc },
-
+    {"substring_index",     3, 0, SQLITE_UTF8,    0, substr_indexFunc },
   };
   /* Aggregate functions */
   static const struct FuncDefAgg {
