@@ -571,8 +571,8 @@ static int csvtabConnect(
 # define CSV_FILENAME (azPValue[0])
 # define CSV_DATA     (azPValue[1])
 # define CSV_SCHEMA   (azPValue[2])
- int* types = 0;
-int numTypes=0;
+  int* types = 0;
+  int numTypes=0;
 
   assert( sizeof(azPValue)==sizeof(azParam) );
   memset(&sRdr, 0, sizeof(sRdr));
@@ -650,11 +650,17 @@ int numTypes=0;
   *ppVtab = (sqlite3_vtab*)pNew;
   if( pNew==0 ) goto csvtab_connect_oom;
   memset(pNew, 0, sizeof(*pNew));
+  
+  //no schema is being passed in
   if( CSV_SCHEMA==0 ){
     sqlite3_str *pStr = sqlite3_str_new(0);
     char *zSep = "";
     int iCol = 0;
     sqlite3_str_appendf(pStr, "CREATE TABLE x(");
+    
+    //ncol means colums= not defined
+    //bheader <0 means header= not defined
+    //so get header row from file
     if( nCol<0 && bHeader<1 ){
       nCol = 0;
       do{
@@ -662,7 +668,11 @@ int numTypes=0;
         nCol++;
       }while( sRdr.cTerm==',' );
     }
+
+    //ncol >0 should always be greater than 0 now when bheader < 0
+    //bheader <0 means header=YES was not defined
     if( nCol>0 && bHeader<1 ){
+      //check for duplicate columns
       for(iCol=0; iCol<nCol; iCol++){
         sqlite3_str_appendf(pStr, "%sc%d", zSep, iCol);
         appendType(types,pStr,iCol,numTypes);
@@ -670,9 +680,12 @@ int numTypes=0;
         zSep = ",";
       }
     }else{
+      //bheader >0 means header=YES was defined so we should read first line from file for header
+
+      //check for duplicate columns need to build list of colums as we go
       do{
         char *z = csv_read_one_field(&sRdr);
-        if( (nCol>0 && iCol<nCol) || (nCol<0 && bHeader) ){
+        if( /* this shouldnt be a case(nCol>0 && iCol<nCol) ||*/ (nCol<0 && bHeader) ){
           sqlite3_str_appendf(pStr,"%s\"%w\"", zSep, z);
           appendType(types,pStr,iCol,numTypes);
           zSep = ",";
@@ -689,19 +702,22 @@ int numTypes=0;
         }
       }
     }
-    pNew->nCol = nCol;
     
     sqlite3_str_appendf(pStr, ")");
     CSV_SCHEMA = sqlite3_str_finish(pStr);
     if( CSV_SCHEMA==0 ) goto csvtab_connect_oom;
   }else if( nCol<0 ){
-    do{
-      csv_read_one_field(&sRdr);
-      pNew->nCol++;
-    }while( sRdr.cTerm==',' );
+    int strIndex = 0;
+    //for the first column
+    pNew->nCol=1;
+    while(strIndex < strlen(CSV_SCHEMA)) {
+      if(CSV_SCHEMA[strIndex] == ',')pNew->nCol++;
+        strIndex++;
+    }
   }else{
     pNew->nCol = nCol;
   }
+
   pNew->zFilename = CSV_FILENAME;  CSV_FILENAME = 0;
   pNew->zData = CSV_DATA;          CSV_DATA = 0;
   if(types != 0) {
@@ -727,6 +743,7 @@ int numTypes=0;
     csv_errmsg(&sRdr, "bad schema: '%s' - %s", CSV_SCHEMA, sqlite3_errmsg(db));
     goto csvtab_connect_error;
   }
+
   for(i=0; i<sizeof(azPValue)/sizeof(azPValue[0]); i++){
     sqlite3_free(azPValue[i]);
   }
@@ -737,12 +754,6 @@ csvtab_connect_oom:
   csv_errmsg(&sRdr, "out of memory");
 
 csvtab_connect_error:
-  if(types != 0){
-    sqlite3_free(azPValue[i]);
-    if( pNew ){
-      pNew->types=NULL;
-    }
-  }
   if( pNew ) csvtabDisconnect(&pNew->base);
   for(i=0; i<sizeof(azPValue)/sizeof(azPValue[0]); i++){
     sqlite3_free(azPValue[i]);
