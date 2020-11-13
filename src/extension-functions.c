@@ -669,6 +669,17 @@ static void floorFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
 }
 
 /*
+** largest integer value not greater than argument
+*/
+static void fromHexFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
+  double rVal=0.0;
+  assert( argc==1 );
+  const char* hexstr = sqlite3_value_text(argv[0]);
+  i64 hexVal = strtol(hexstr, NULL, 0);
+  sqlite3_result_int64(context, hexVal);
+}
+
+/*
 ** Given a string (s) in the first argument and an integer (n) in the second returns the 
 ** string that constains s contatenated n times
 */
@@ -1841,7 +1852,7 @@ int RegisterExtensionFunctions(sqlite3 *db){
     { "floor",              1, 0, SQLITE_UTF8,    0, floorFunc },
 
     { "pi",                 0, 0, SQLITE_UTF8,    1, piFunc },
-
+    { "fromHex",            1, 0, SQLITE_UTF8,    0, fromHexFunc },
 
     /* string */
     { "replicate",          2, 0, SQLITE_UTF8,    0, replicateFunc },
@@ -1861,7 +1872,8 @@ int RegisterExtensionFunctions(sqlite3 *db){
     { "padr",               2, 0, SQLITE_UTF8,    0, padrFunc },
     { "padc",               2, 0, SQLITE_UTF8,    0, padcFunc },
     { "strfilter",          2, 0, SQLITE_UTF8,    0, strfilterFunc },
-    {"substring_index",     3, 0, SQLITE_UTF8,    0, substr_indexFunc },
+    { "substring_index",     3, 0, SQLITE_UTF8,    0, substr_indexFunc },
+    
   };
   /* Aggregate functions */
   static const struct FuncDefAgg {
