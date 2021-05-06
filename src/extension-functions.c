@@ -1019,62 +1019,402 @@ static void substr_indexFunc(sqlite3_context *context, int argc, sqlite3_value *
   
   long nnn = 0;
   long ccc = count_val;
-   for (int pass = (count_val < 0 ? 0 : 1); pass < 2; ++pass) {
-      while (offset < end) {
-        if (*(res+offset) == *delimiter) {
-          int i = 0;
-          while (i != delimiter_length) {
-            i++;
-            if (*(i+delimiter) != *(i+delimiter)) goto skip;
-          }
-          if (pass == 0)
-            ++nnn;
-          else if (--ccc == 0)
-            break;
-          offset += delimiter_length;
-          continue;
+  for (int pass = (count_val < 0 ? 0 : 1); pass < 2; ++pass) {
+    while (offset < end) {
+      if (startsWith(res+offset, delimiter)) {
+        int i = 0;
+        while (i != delimiter_length) {
+          i++;
+          if (*(i+delimiter) != *(i+delimiter)) goto skip;
         }
-      skip:
-        offset ++; //max(1U, my_ismbchar(res->charset(), ptr, strend));
-      } /* either not found or got total number when count<0 */
-
-      if (pass == 0) /* count < 0 */
-      {
-        ccc += nnn + 1;
-        if (ccc <= 0){
-          tmp=res;/* not found, return original string */
+        if (pass == 0)
+          ++nnn;
+        else if (--ccc == 0)
           break;
-        }
-        offset=0;
-      } else {
-        if (ccc != 0){
-          tmp=res;/* not found, return original string */
-          break;
-        } 
-        if (count_val < 0) /* return right part */
-        {
-          tmp = sqlite3_malloc(res_length-offset-delimiter_length+1); 
-          if (!tmp){
-            sqlite3_result_error_nomem(context);
-            return;
-          }
-          strncpy((char *)tmp,(char *)(res+offset+delimiter_length),res_length-offset-delimiter_length);
-          tmp[res_length-offset-delimiter_length]='\0';
-        } else /* return left part */
-        {
-          tmp = sqlite3_malloc(offset+1); 
-          if (!tmp){
-            sqlite3_result_error_nomem(context);
-            return;
-          }
-          strncpy((char *)tmp,(char *)(res),offset);
-          tmp[offset]='\0';
-          //tmp_value.set(*res, 0, (ptr - res->ptr()));
-        }
+        offset += delimiter_length;
+        continue;
       }
-    }    
-    sqlite3_result_text(context, (char*)tmp, -1, SQLITE_TRANSIENT); 
+    skip:
+      offset ++; //max(1U, my_ismbchar(res->charset(), ptr, strend));
+    } /* either not found or got total number when count<0 */
+
+    if (pass == 0) /* count < 0 */
+    {
+      ccc += nnn + 1;
+      if (ccc <= 0){
+        tmp=res;/* not found, return original string */
+        break;
+      }
+      offset=0;
+    } else {
+      if (ccc != 0){
+        tmp=res;/* not found, return original string */
+        break;
+      } 
+      if (count_val < 0) /* return right part */
+      {
+        tmp = sqlite3_malloc(res_length-offset-delimiter_length+1); 
+        if (!tmp){
+          sqlite3_result_error_nomem(context);
+          return;
+        }
+        strncpy((char *)tmp,(char *)(res+offset+delimiter_length),res_length-offset-delimiter_length);
+        tmp[res_length-offset-delimiter_length]='\0';
+      } else /* return left part */
+      {
+        tmp = sqlite3_malloc(offset+1); 
+        if (!tmp){
+          sqlite3_result_error_nomem(context);
+          return;
+        }
+        strncpy((char *)tmp,(char *)(res),offset);
+        tmp[offset]='\0';
+        //tmp_value.set(*res, 0, (ptr - res->ptr()));
+      }
+    }
+  }    
+  sqlite3_result_text(context, (char*)tmp, -1, SQLITE_TRANSIENT);
+}
+
+/**
+ ** Converts a string-formatted storage value into MB
+ ** Ex: select mt_capacity_to_mb("sdfh sj 97,705.94 KB")
+ **
+ **/
+static void mt_capacity_to_mbFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
+
+  char *str;
+  int strLength;
+  char *result;
+
+  if( sqlite3_value_type(argv[0]) == SQLITE_NULL ){
+    // input is null - return null
+    sqlite3_result_null(context); 
+    return;
   }
+
+  str = (char *)sqlite3_value_text(argv[0]);
+	strLength = sqlite3_value_bytes(argv[0]);
+  result = sqlite3_malloc(strLength+1);
+
+  int numSize = 0;
+  char *c;
+  int foundNum = 0;
+  
+  for (c = str; *c != '\0'; c++) {
+      if (isdigit(*c) || (*c == '.' && isdigit(*(c+1)))) {
+          numSize++;
+      }
+  }
+
+  if( numSize == 0 ){
+    // input contains no numbers - return null
+    sqlite3_result_null(context); 
+    return;
+  }
+  
+  char *num = sqlite3_malloc(numSize + 1);
+  int numIdx = 0;
+  char *unit = sqlite3_malloc(3);
+  int unitIdx = 0;
+  char *unitChars = "bkmgtpe";
+  
+  for (c = str; *c != '\0'; c++) {
+      if (isdigit(*c) || (*c == '.' && isdigit(*(c+1)))) {
+          if (!foundNum) {
+              foundNum = 1;
+          }
+          num[numIdx] = *c;
+          numIdx++;
+      } else if (foundNum && unitIdx < 2 && strchr(unitChars, tolower(*c)) != NULL) {
+          unit[unitIdx] = tolower(*c);
+          unitIdx++;
+      }
+  }
+  
+  num[numIdx] = '\0';
+  unit[unitIdx] = '\0';
+  int unitLength = strlen(unit);
+  float parsedNum = strtof(num, NULL);
+  
+  if (unitLength > 1) {
+      if (unit[0] == 'k') {
+          parsedNum = parsedNum / 1024;
+      } else if (unit[0] == 'm') {
+          parsedNum = parsedNum;
+      } else if (unit[0] == 'g') {
+          parsedNum = parsedNum * 1024;
+      } else if (unit[0] == 't') {
+          parsedNum = parsedNum * 1024 * 1024;
+      } else if (unit[0] == 'p') {
+          parsedNum = parsedNum * 1024 * 1024 * 1024;
+      } else if (unit[0] == 'e') {
+          parsedNum = parsedNum * 1024 * 1024 * 1024 * 1024;
+      }
+  } else {
+      // default: B
+      parsedNum = parsedNum / 1024 / 1024;
+  }
+
+  sqlite3_result_double(context, parsedNum, -1, SQLITE_TRANSIENT);
+}
+
+static char* doubleToString(double num) {
+  char *str = sqlite3_malloc(10);
+  sprintf(str, "%.0f", num);
+  return str;
+}
+
+/**
+ ** Converts number of days into a retention period (i.e. string)
+ ** Ex: SELECT mt_num_days_to_age("23", "Data Protector")
+ ** Ex: 30 --> 4 weeks
+ ** Ex: 92 --> 3 months
+ ** Ex: 7  --> 1 week
+ **/
+static void mt_num_days_to_ageFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
+
+  double daysInput;
+  int isDaysInputNull = 0;
+  double days = -1;
+  double weeks = -1;
+  double months = -1;
+  double years = -1;
+  char *result;
+  char *platform;
+
+  if( sqlite3_value_type(argv[0]) == SQLITE_NULL ){
+    isDaysInputNull = 1;
+  }
+
+  daysInput = sqlite3_value_double(argv[0]);
+  platform = sqlite3_value_text(argv[1]);
+
+  if ( daysInput >= 7 && daysInput/7 < 9) {
+		weeks = round(daysInput/7);
+  } else if (daysInput <= 27) {
+    days = daysInput;
+  } else if (daysInput > 350) {
+    years = round(daysInput/365);
+  } else {
+    years = -1;
+  }
+
+	if (daysInput - (years < 0 ? 0 : years * 365) > 27) {
+    months = round((daysInput - (years < 0 ? 0 : years)*365)/30 );  
+  } else {
+    months = -1;
+  }
+
+  if (daysInput < 0 && strcmp(platform, "NetBackup") == 0) {
+    result = "Infinity";
+  }	else if (daysInput < 0 && strcmp(platform, "CommVault") == 0) {
+    result = "Infinity";
+  }	else if (strcmp(platform, "NetBackup") == 0 && years > 22) {
+    result = "Infinity";
+  }	else if (strcmp(platform, "Data Protector") == 0 && isDaysInputNull) {
+    result = "Protected Permanently";
+  }	else if (strcmp(platform, "Data Protector") == 0 && daysInput < 0) {
+    result = "Not Protected";
+  }	else if (days == 1) {
+    result = "1 Day";
+  }	else if (days >= 0) {
+    result = strcat(doubleToString(days), " Days");
+  }	else if (weeks == 1) {
+    result = "1 Week";
+  }	else if (weeks >= 0) {
+    result = strcat(doubleToString(weeks), " Weeks");
+  }	else if (years == 1 && months == 1) {
+    result = "1 Year, 1 Month";
+  }	else if (years == 1 && months >= 0) {
+    result = strcat(strcat("1 Year, ", doubleToString(months)), " Months");
+  }	else if (years >= 0 && months == 1) {
+    result = strcat(strcat(doubleToString(years), " Years, ")," 1 Month");
+  }	else if (years >= 0 && months >= 0) {
+    result = strcat(strcat(strcat(doubleToString(years), " Years, "), doubleToString(months)), " Months");
+  }	else if (years == 1) {
+    result = "1 Year";
+  }	else if (years >= 0) {
+    result = strcat(doubleToString(years), " Years");
+  }	else if (months == 1) {
+    result = "1 Month";
+  }	else if (months >= 0) {
+    result = strcat(doubleToString(months), " Months");
+  } else {
+    result = "Unknown";
+  }
+
+  sqlite3_result_text(context, (char*)result, -1, SQLITE_TRANSIENT);
+
+}
+
+/**
+ ** Truncates a hostname
+ ** Ex: select mt_truncate_host("phl-nw05.dhe.duke.edu") --> phl-nw05
+ ** Ex: SELECT mt_truncate_host("123.23.5.221") --> 123.23.5.221
+ **
+ **/
+static void mt_truncate_hostFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
+
+  char *str;
+  char *result;
+
+  if (sqlite3_value_type(argv[0]) == SQLITE_NULL ){
+    // input is null - return null
+    sqlite3_result_null(context); 
+    return;
+  }
+
+  str = (char *)sqlite3_value_text(argv[0]);
+
+  char *c;
+  int numbersOnly = 0;
+  int charCount = 0;
+  
+  for (c = str; *c != '\0'; c++) {
+      if (*c == '.' && numbersOnly == 1) {
+        break;
+      } else if (*c != '.' && numbersOnly == 0 && !isdigit(*c)) {
+        numbersOnly = 1;
+      }
+      charCount++;
+  }
+
+  result = sqlite3_malloc(charCount+1);
+  strncpy(result, str, charCount);
+  result[charCount] = '\0';
+  sqlite3_result_text(context, (char*)result, -1, SQLITE_TRANSIENT);
+
+}
+
+static int startsWith(char *input, char *checkStr) {
+  const int checkStrLength = strlen(checkStr);
+  if (strlen(input) >= checkStrLength) { 
+    for (int i = 0; i < checkStrLength; i++) {
+      if (checkStr[i] != input[i]) {
+        return 0;
+      }
+    }
+    return 1;
+  }
+  return 0;
+}
+
+/**
+ ** Converts string to app name
+ ** Ex: SELECT mt_nwk_job_to_app("VSS ASR DISK", "bbbb")
+ ** Ex: SELECT mt_nwk_job_to_app("<N>index: xyz format", "bbbb")
+ ** Ex: SELECT mt_nwk_job_to_app("APPLICATIONS:\\abcdefghijklmnopqrst\123456", "bbbb")
+ **/
+static void mt_nwk_job_to_appFunc(sqlite3_context *context, int argc, sqlite3_value **argv){
+
+  char *jobName;
+  char *flags;
+  char *app;
+  char *result;
+
+  if( sqlite3_value_type(argv[0]) == SQLITE_NULL ){
+    sqlite3_result_null(context); 
+    return;
+  }
+
+  jobName = sqlite3_value_text(argv[0]);
+  flags = sqlite3_value_type(argv[1]) == SQLITE_NULL ? NULL : sqlite3_value_text(argv[1]);
+
+  // Extract "index" from "<N>index: xyz format"
+  int start = 0;
+  int end = strlen(jobName);
+  for (int i = 0; i < strlen(jobName); i++) {
+      if (jobName[i] == ':' && end > i) {
+        end = i;
+      } else if (jobName[i] == '>') {
+        start = i + 1;
+      }
+  }
+  
+  int length = end - start + 1;
+  app = sqlite3_malloc(length);
+  int i;
+  for (i = start; i < end; i++ ) {
+      app[i - start] = jobName[i];
+  }
+  app[i-start] = '\0';
+
+  if (startsWith(jobName, "MSSQL") > 0) { 
+    result = "MS-SQL";
+  } else if (flags != NULL && strchr(flags, 'n') != NULL) { 
+    result = "NDMP";
+  } else if (strcmp(app, "DB2") == 0) { 
+    result = "DB2";
+  } else if (strcmp(app, "INFORMIX") == 0) { 
+    result = "INFORMIX";
+  } else if (strcmp(app, "MSSQL") == 0) { 
+    result = "MS-SQL";
+  } else if (strcmp(app, "MSEXCH") == 0) { 
+    result = "Exchange";
+  } else if (strcmp(app, "NOTES") == 0) { 
+    result = "Lotus";
+  } else if (strcmp(app, "NMEO") == 0) { 
+    result = "Oracle";
+  } else if (strcmp(app, "Oracle - RMAN") == 0) { 
+    result = "Oracle";
+  } else if (strcmp(app, "RMAN") == 0) { 
+    result = "Oracle";				
+  } else if (strcmp(app, "SAP") == 0) { 
+    result = "SAP";				
+  } else if (strcmp(app, "SYBASE") == 0) { 
+    result = "Sybase";				
+  } else if (strcmp(app, "backint") == 0) { 
+    result = "SAP";				
+  } else if (strcmp(app, "index") == 0) { 
+    result = "NetWorker Indexes";				
+  } else if (strcmp(app, "SYSTEM DB") == 0) { 
+    result = "Windows System State";				
+  } else if (strcmp(app, "SYSTEM FILES") == 0) { 
+    result = "Windows System State";				
+  } else if (strcmp(app, "SYSTEM STATE") == 0) { 
+    result = "Windows System State";				
+  } else if (strcmp(app, "VSS ASR DISK") == 0) { 
+    result = "Windows System State";				
+  } else if (strcmp(app, "ASR") == 0) { 
+    result = "Windows System State";				
+  } else if (strcmp(app, "VSS OTHER") == 0) { 
+    result = "Windows System State";					
+  } else if (strcmp(app, "VSS SYSTEM") == 0) { 
+    result = "Windows System State";					
+  } else if (strcmp(app, "VSS USER DATA") == 0) { 
+    result = "Windows System State";						
+  } else if (strcmp(app, "VSS SYSTEM STATE") == 0) { 
+    result = "Windows System State";
+  } else if (strcmp(app, "VSS SYSTEM BOOT") == 0) { 
+    result = "Windows System State";
+  } else if (strcmp(app, "VSS SYSTEM SERVICES") == 0) { 
+    result = "Windows System State";
+  } else if (strcmp(app, "VSS SYSTEM FILESET") == 0) { 
+    result = "Windows System State";	
+  } else if (startsWith(jobName, "APPLICATIONS:\\\\") > 0) { 
+    int start = 15;
+    int length = strlen(jobName) - start;
+    result = sqlite3_malloc(length + 1);
+    memcpy( result, &jobName[start], length);
+    result[length] = '\0';
+    for (int i = 0; i < length; i++) {
+      if (result[i] == '\\') {
+        result[i] = '\0';
+        break;
+      }
+    }
+  } /*else if (strcmp(app, "APPLICATIONS") == 0) { 
+    result = SUBSTRING_INDEX(SUBSTRING_INDEX(SUBSTRING_INDEX(jobName, ":", 2), ":", -1), "\\",2);		
+  }*/else {
+    result = "Filesystem";
+  }
+
+  sqlite3_result_text(context, (char*)result, -1, SQLITE_TRANSIENT);
+
+  return 0;
+
+}
 
 /*
 ** Given a string z1, retutns the (0 based) index of it's first occurence
@@ -1872,7 +2212,11 @@ int RegisterExtensionFunctions(sqlite3 *db){
     { "padr",               2, 0, SQLITE_UTF8,    0, padrFunc },
     { "padc",               2, 0, SQLITE_UTF8,    0, padcFunc },
     { "strfilter",          2, 0, SQLITE_UTF8,    0, strfilterFunc },
-    { "substring_index",     3, 0, SQLITE_UTF8,    0, substr_indexFunc },
+    { "substring_index",    3, 0, SQLITE_UTF8,    0, substr_indexFunc },
+    { "mt_capacity_to_mb",  1, 0, SQLITE_UTF8,    0, mt_capacity_to_mbFunc },
+    { "mt_num_days_to_age", 2, 0, SQLITE_UTF8,    0, mt_num_days_to_ageFunc },
+    { "mt_truncate_host",   1, 0, SQLITE_UTF8,    0, mt_truncate_hostFunc },
+    { "mt_nwk_job_to_app",  2, 0, SQLITE_UTF8,    0, mt_nwk_job_to_appFunc },
     
   };
   /* Aggregate functions */

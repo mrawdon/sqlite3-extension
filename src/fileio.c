@@ -140,8 +140,9 @@ static void readFileContents(sqlite3_context *ctx, const char *zName, const char
     /* File does not exist or is unreadable. Leave the result set to NULL. */
     if(defaultValue != 0){
       sqlite3_result_text(ctx, defaultValue, -1, SQLITE_TRANSIENT);
-    }
-    
+    } else {
+      sqlite3_result_error(ctx, "File not found", -1);
+    }    
     return;
   }
   fseek(in, 0, SEEK_END);
