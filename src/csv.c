@@ -500,7 +500,7 @@ static int csv_boolean(const char *z){
 }
 
 #define CSV_LOG 1
-void  log(const char *z){
+void  csv_log(const char *z){
 #if CSV_LOG 
    FILE *fp;
 
@@ -513,7 +513,7 @@ void  log(const char *z){
 
 
 
-void  logInt(const char *s, int z){
+void  csv_logInt(const char *s, int z){
 #if CSV_LOG 
    FILE *fp;
 
@@ -700,7 +700,7 @@ static int csvtabConnect(
     
     if (sqlRc != SQLITE_OK)
     {
-      log("error");
+      csv_log("error");
       csv_errmsg(db, "prepare failed");
       goto csvtab_connect_error;
     }
@@ -869,12 +869,12 @@ static int csvtabConnect(
   return SQLITE_OK;
 
 csvtab_connect_oom:
-  log("got to oom error");
+  csv_log("got to oom error");
   rc = SQLITE_NOMEM;
   csv_errmsg(&sRdr, "out of memory");
 
 csvtab_connect_error:
-  log("got to connect error");
+  csv_log("got to connect error");
   if( pNew ) csvtabDisconnect(&pNew->base);
   
   for(i=0; i<sizeof(azPValue)/sizeof(azPValue[0]); i++){
