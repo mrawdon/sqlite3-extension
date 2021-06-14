@@ -499,6 +499,32 @@ static int csv_boolean(const char *z){
   return -1;
 }
 
+#define CSV_LOG 1
+void  log(const char *z){
+#if CSV_LOG 
+   FILE *fp;
+
+   fp = fopen("c:/temp/test.log", "a");
+   fprintf(fp, z);
+   fprintf(fp, "\n");
+   fclose(fp);
+#endif
+}
+
+
+
+void  logInt(const char *s, int z){
+#if CSV_LOG 
+   FILE *fp;
+
+   fp = fopen("c:/temp/test.log", "a");
+   fprintf(fp, s);
+   fprintf(fp, "%d",z);
+   fprintf(fp, "\n");
+   fclose(fp);
+#endif
+}
+
 /* Check to see if the string is of the form:  "TAG = BOOLEAN" or just "TAG".
 ** If it is, set *pValue to be the value of the boolean ("true" if there is
 ** not "= BOOLEAN" component) and return non-zero.  If the input string
@@ -571,12 +597,18 @@ static int csvtabConnect(
 # define CSV_FILENAME (azPValue[0])
 # define CSV_DATA     (azPValue[1])
 # define CSV_SCHEMA   (azPValue[2])
-  int* types = 0;
-  int numTypes=0;
 
   assert( sizeof(azPValue)==sizeof(azParam) );
   memset(&sRdr, 0, sizeof(sRdr));
   memset(azPValue, 0, sizeof(azPValue));
+
+  int sqlRc=0;
+
+  int* types = 0;
+  int numTypes=0;
+  char* dbFilePath=0;
+  
+    
   for(i=3; i<argc; i++){
     const char *z = argv[i];
     const char *zValue;
@@ -636,9 +668,96 @@ static int csvtabConnect(
       goto csvtab_connect_error;
     }
   }
+
   if( (CSV_FILENAME==0)==(CSV_DATA==0) ){
     csv_errmsg(&sRdr, "must specify either filename= or data= but not both");
     goto csvtab_connect_error;
+  }
+   
+  if(CSV_FILENAME !=0 &&  strlen(CSV_FILENAME) > 5 &&  memcmp(CSV_FILENAME, "db://", 5) == 0 ){
+    char* sql = 0;
+    sqlite3_stmt *stmt = 0;
+    char* dbName = argv[1];
+    static const char baseSql[] ="select file from pragma_database_list where name=";
+    int baseSqlLength=strlen(baseSql);
+    int sqlLength = baseSqlLength+strlen(dbName)+2;//an extra 2 for quotes
+    sql=sqlite3_malloc(sqlLength+1);//extra 1 for terminator
+    memcpy(sql, baseSql, baseSqlLength);
+    sql[baseSqlLength]='"';
+    memcpy(sql+baseSqlLength+1, dbName, strlen(dbName));
+    sql[sqlLength-1]='"';
+    sql[sqlLength]='\0';
+    
+    int filenameLength=strlen(CSV_FILENAME)-5;
+    
+    if (!sql){
+      csv_errmsg(db, "out of memory");
+      goto csvtab_connect_error;
+    }
+    
+    sqlRc = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
+    sqlite3_free(sql);
+    
+    if (sqlRc != SQLITE_OK)
+    {
+      log("error");
+      csv_errmsg(db, "prepare failed");
+      goto csvtab_connect_error;
+    }
+    
+    int row=0;
+    sqlRc = sqlite3_step(stmt);
+    while (sqlRc == SQLITE_ROW)
+    {
+      //there should only be 1 row
+      if(row != 0){
+        csv_errmsg(db, "found multiple dbs");
+        goto csvtab_connect_error;
+      }
+      row++;
+      char* dbFile = (char *)sqlite3_column_text(stmt, 0);
+      
+      //get directory part of the dbfile path
+      int dbDirLength=-1;
+      const char *it = dbFile;
+      i =0;
+      while(i < strlen(dbFile))
+      {
+        if(*it == '/' || *it == '\\'){
+          dbDirLength=i+1;
+        }
+        *it++;
+        i++;
+      }
+      
+      int newPathLength=dbDirLength+filenameLength;
+      dbFilePath = sqlite3_malloc(newPathLength+1);
+      if(!dbFilePath){
+        goto csvtab_connect_oom;
+      }
+      //copy the db dir part
+      memcpy(dbFilePath, dbFile, dbDirLength);
+      //copy the part from after db://
+      memcpy(dbFilePath+dbDirLength, CSV_FILENAME+5, filenameLength);
+      dbFilePath[newPathLength] = '\0';
+      
+      //the old CSV filename will get freed already
+      CSV_FILENAME=dbFilePath;
+
+      //go to next row(this should end the query)
+      sqlRc = sqlite3_step(stmt);
+    }
+    sqlite3_finalize(stmt);
+    
+    if (!dbFilePath){
+      csv_errmsg(&sRdr, "no dbs");
+      goto csvtab_connect_error;
+    }
+
+    if (sqlRc != SQLITE_DONE){
+      csv_errmsg(db, "select failed", -1);
+      goto csvtab_connect_error;
+    }
   }
 
   if( (nCol<=0 || bHeader==1)
@@ -750,20 +869,32 @@ static int csvtabConnect(
   return SQLITE_OK;
 
 csvtab_connect_oom:
+  log("got to oom error");
   rc = SQLITE_NOMEM;
   csv_errmsg(&sRdr, "out of memory");
 
 csvtab_connect_error:
+  log("got to connect error");
   if( pNew ) csvtabDisconnect(&pNew->base);
+  
   for(i=0; i<sizeof(azPValue)/sizeof(azPValue[0]); i++){
     sqlite3_free(azPValue[i]);
   }
+  
   if( sRdr.zErr[0] ){
     sqlite3_free(*pzErr);
     *pzErr = sqlite3_mprintf("%s", sRdr.zErr);
   }
+  
+  if(dbFilePath){
+    sqlite3_free(dbFilePath);
+  }
+  
+  
   csv_reader_reset(&sRdr);
+  
   if( rc==SQLITE_OK ) rc = SQLITE_ERROR;
+  logInt("exiting",rc);
   return rc;
 }
 
