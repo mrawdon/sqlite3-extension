@@ -894,7 +894,7 @@ csvtab_connect_error:
   csv_reader_reset(&sRdr);
   
   if( rc==SQLITE_OK ) rc = SQLITE_ERROR;
-  logInt("exiting",rc);
+  csv_logInt("exiting",rc);
   return rc;
 }
 
