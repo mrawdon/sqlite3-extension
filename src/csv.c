@@ -499,7 +499,7 @@ static int csv_boolean(const char *z){
   return -1;
 }
 
-#define CSV_LOG 1
+#define CSV_LOG 0
 void  csv_log(const char *z){
 #if CSV_LOG 
    FILE *fp;
