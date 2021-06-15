@@ -675,89 +675,40 @@ static int csvtabConnect(
   }
    
   if(CSV_FILENAME !=0 &&  strlen(CSV_FILENAME) > 5 &&  memcmp(CSV_FILENAME, "db://", 5) == 0 ){
-    char* sql = 0;
-    sqlite3_stmt *stmt = 0;
-    char* dbName = argv[1];
-    static const char baseSql[] ="select file from pragma_database_list where name=";
-    int baseSqlLength=strlen(baseSql);
-    int sqlLength = baseSqlLength+strlen(dbName)+2;//an extra 2 for quotes
-    sql=sqlite3_malloc(sqlLength+1);//extra 1 for terminator
-    memcpy(sql, baseSql, baseSqlLength);
-    sql[baseSqlLength]='"';
-    memcpy(sql+baseSqlLength+1, dbName, strlen(dbName));
-    sql[sqlLength-1]='"';
-    sql[sqlLength]='\0';
+    const char* dbName = argv[1];
+    csv_log("dbName");
+    csv_log(dbName);
+    const char* dbFile = sqlite3_db_filename(db, dbName);
+    csv_log("filename from db call");
+    csv_log(dbFile);
     
     int filenameLength=strlen(CSV_FILENAME)-5;
-    
-    if (!sql){
-      csv_errmsg(db, "out of memory");
-      goto csvtab_connect_error;
-    }
-    
-    sqlRc = sqlite3_prepare_v2(db, sql, -1, &stmt, 0);
-    sqlite3_free(sql);
-    
-    if (sqlRc != SQLITE_OK)
-    {
-      csv_log("error");
-      csv_errmsg(db, "prepare failed");
-      goto csvtab_connect_error;
-    }
-    
-    int row=0;
-    sqlRc = sqlite3_step(stmt);
-    while (sqlRc == SQLITE_ROW)
-    {
-      //there should only be 1 row
-      if(row != 0){
-        csv_errmsg(db, "found multiple dbs");
-        goto csvtab_connect_error;
-      }
-      row++;
-      char* dbFile = (char *)sqlite3_column_text(stmt, 0);
-      
-      //get directory part of the dbfile path
-      int dbDirLength=-1;
-      const char *it = dbFile;
-      i =0;
-      while(i < strlen(dbFile))
+    int dbDirLength=-1;
+    const char *it = dbFile;
+    i =0;
+    while(i < strlen(dbFile)){
+      if (*it == '/' || *it == '\\')
       {
-        if(*it == '/' || *it == '\\'){
-          dbDirLength=i+1;
-        }
-        *it++;
-        i++;
+        dbDirLength = i + 1;
       }
-      
-      int newPathLength=dbDirLength+filenameLength;
-      dbFilePath = sqlite3_malloc(newPathLength+1);
-      if(!dbFilePath){
-        goto csvtab_connect_oom;
-      }
-      //copy the db dir part
-      memcpy(dbFilePath, dbFile, dbDirLength);
-      //copy the part from after db://
-      memcpy(dbFilePath+dbDirLength, CSV_FILENAME+5, filenameLength);
-      dbFilePath[newPathLength] = '\0';
-      
-      //the old CSV filename will get freed already
-      CSV_FILENAME=dbFilePath;
-
-      //go to next row(this should end the query)
-      sqlRc = sqlite3_step(stmt);
-    }
-    sqlite3_finalize(stmt);
-    
-    if (!dbFilePath){
-      csv_errmsg(&sRdr, "no dbs");
-      goto csvtab_connect_error;
+      *it++;
+      i++;
     }
 
-    if (sqlRc != SQLITE_DONE){
-      csv_errmsg(db, "select failed", -1);
-      goto csvtab_connect_error;
+    int newPathLength = dbDirLength + filenameLength;
+    dbFilePath = sqlite3_malloc(newPathLength + 1);
+    if (!dbFilePath)
+    {
+      goto csvtab_connect_oom;
     }
+    //copy the db dir part
+    memcpy(dbFilePath, dbFile, dbDirLength);
+    //copy the part from after db://
+    memcpy(dbFilePath + dbDirLength, CSV_FILENAME + 5, filenameLength);
+    dbFilePath[newPathLength] = '\0';
+
+    //the old CSV filename will get freed already
+    CSV_FILENAME = dbFilePath;
   }
 
   if( (nCol<=0 || bHeader==1)
