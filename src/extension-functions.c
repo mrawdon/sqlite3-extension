@@ -1076,6 +1076,18 @@ static void substr_indexFunc(sqlite3_context *context, int argc, sqlite3_value *
   sqlite3_result_text(context, (char*)tmp, -1, SQLITE_TRANSIENT);
 }
 
+static int strcmpnocase(char const *a, char const *b){
+    for (;; a++, b++) {
+        int d = toupper((unsigned char)*a) - toupper((unsigned char)*b);
+        if (d != 0 || !*a)
+            return d;
+    }
+}
+
+static int mt_collate_nocase2(void *arg, int l1, const void *s1, int l2, const void *s2){
+  return strcmpnocase(s1, s2);
+}
+
 /**
  ** Converts a string-formatted storage value into MB
  ** Ex: select mt_capacity_to_mb("sdfh sj 97,705.94 KB")
@@ -2290,6 +2302,7 @@ int sqlite3_extension_init(
     sqlite3 *db, char **pzErrMsg, const sqlite3_api_routines *pApi){
   SQLITE_EXTENSION_INIT2(pApi);
   RegisterExtensionFunctions(db);
+  sqlite3_create_collation(db, "nocase2", SQLITE_UTF8, NULL, mt_collate_nocase2);
   return 0;
 }
 #endif /* COMPILE_SQLITE_EXTENSIONS_AS_LOADABLE_MODULE */
