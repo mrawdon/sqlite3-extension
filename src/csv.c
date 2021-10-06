@@ -749,6 +749,7 @@ static int csvtabConnect(
         
         zSep = ",";
       }
+      pNew->nCol = nCol;
     }else{
       //bheader >0 means header=YES was defined so we should read first line from file for header
 
@@ -772,7 +773,7 @@ static int csvtabConnect(
         }
       }
     }
-    
+    pNew->nCol = nCol;
     sqlite3_str_appendf(pStr, ")");
     CSV_SCHEMA = sqlite3_str_finish(pStr);
     if( CSV_SCHEMA==0 ) goto csvtab_connect_oom;
